@@ -149,7 +149,7 @@ Raspi型号：3B
         ####输入
         #!/bin/bash
         cd /root/finalspeed
-        nohup java -jar client.jar >/dev/null 2>&1 &
+        nohup java -jar client.jar -b >/dev/null 2>&1 &
         cd /root
         ####保存退出
         chmod 755 fs.sh
