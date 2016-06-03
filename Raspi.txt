@@ -1,0 +1,423 @@
+Raspi型号：3B
+
+主要功能：Pcap_DNSProxy + Shadowsocks + Finalspeed + Wifi + OpenVPN + Gateway
+- 用Pcap_DNSProxy做本地DNS
+- Shadowsocks建立安全连接科学上网
+- Finalspeed在Raspi和VPS之间做端口加速，理论上可以达到最大带宽，看Youtube 4k没问题
+- OpenVPN方便自己在外面临时科学上网，重点在于墙内的OpenVPN连接是不受干扰的，目前IOS和Android都有客户端
+- 家用或办公室将Raspi作为网关上网
+- 出差时用Raspi作为wifi上网，Raspi的无线网卡较弱，也就适合酒店一个房间使用
+
+一、准备Raspi
+    1. 粘贴散热片，组装盒子
+    2. 下载Raspbian完整版
+        https://www.raspberrypi.org/downloads/raspbian/
+    3. 下载win32diskimager
+        https://sourceforge.net/projects/win32diskimager/files/latest/download
+    4. 往TF卡中写入镜像，插入Raspi
+    5. Raspi连接网线，通电
+
+二、Raspi基本设置
+    1. 在路由中查到Raspi的ip地址，默认主机名是raspberrypi，或者用superscan扫描出来
+    2. 使用putty以ssh方式连接Raspi，默认端口22，默认用户pi，默认密码raspberry
+    3. sudo raspi-config #常规配置，按以下序号依次选一遍
+        a) 1 Expand Filesystem
+        b) 2 Change User Password
+        c) 3 Boot Option --> B1 Console
+        d) 4 Wait for Network at Boot --> No
+        e) 5 Internationalisation Options  --> 设置一下语言(en_US)和时区(Shanghai)
+        f) 9 Advanced Options --> A2 Hostname
+        g) 9 Advanced Options --> A3 Memory Split (显存)
+        设置完选Finish重启
+    4. 开启root登录(反正在内网路由后面，图方便)
+        sudo passwd root
+        sudo passwd --unlock root
+        sudo nano /etc/ssh/sshd_config
+        ####修改，顺便把默认端口22换一下
+        Port xxxxx
+        PermitRootLogin yes
+        ####保存退出
+        sudo service ssh restart
+        退出pi用户并换root登录
+    5. 更新并安装一些必要的包，最好用默认源，阿里和中科大的源我试过，快是快但有些包被和谐了
+        apt-get update
+        apt-get upgrade
+        apt-get install build-essential autoconf libtool libssl-dev git
+        apt-get install libnet1 libpcap0.8 libnet1-dev libpcap0.8-dev
+
+三、安装Pcap_DNSProxy
+    1. 下面是编译安装步骤，详细解释可参考
+        https://github.com/chengr28/Pcap_DNSProxy/blob/master/Documents/ReadMe_Linux(zh_Hans).txt
+    2. 安装编译环境
+        apt-get install Bison Flex CMake
+        # Install LibPcap
+        cd /root
+        wget http://www.tcpdump.org/release/libpcap-1.7.4.tar.gz
+        tar xvf libpcap-1.7.4.tar.gz
+        rm libpcap-1.7.4.tar.gz
+        cd libpcap-1.7.4
+        ./configure
+        make && make install
+        # Install Libsodium
+        cd /root
+        git clone https://github.com/jedisct1/libsodium
+        cd libsodium
+        ./autogen.sh
+        ./configure
+        make && make install
+    3. 编译安装Pcap_DNSProxy
+        cd /root
+        git clone https://github.com/chengr28/Pcap_DNSProxy.git
+        cd Pcap_DNSProxy/Source/Scripts
+        chmod 755 Linux_Build.sh
+        ./Linux_Build.sh
+        #Raspi默认不带DNS服务相关的包，会导致Pcap_DNSProxy无法启动
+        #最简单的办法是装一次dnsmasq然后立即删掉
+        apt-get install dnsmasq
+        apt-get remove dnsmasq
+    4. 配置系统服务
+        cd /root/Pcap_DNSProxy/Source/Release
+        nano Pcap_DNSProxy.service
+        ####修改
+        WorkingDirectory=/root/Pcap_DNSProxy/Source/Release/
+        ExecStart=/root/Pcap_DNSProxy/Source/Release/Pcap_DNSProxy
+        ####保存退出
+        cd /root/Pcap_DNSProxy/Source/Scripts
+        ./Linux_Install.Systemd.sh
+        #可以用systemctl status Pcap_DNSProxy检查运行情况，看到active (running)即可
+        #输入netstat -tulpn也能看到Pcap_DNSProxy的53端口已经开放了
+
+三、安装Shadowsocks
+    1. 需要vps上运行服务端ss-server
+    2. 编译安装
+        cd /root
+        git clone https://github.com/madeye/shadowsocks-libev.git
+        cd shadowsocks-libev
+        ./configure
+        make && make install
+    3. 主要用到ss-redir，安装后暂不运行，后面统一配置
+
+四、安装Finalspeed
+    1. Finalspeed是加速的关键，需要vps上运行服务端。目前只有Java版本，这也是为什么要使用支持Java的Raspi作为网关，以后如果有了OpenWRT版，就可以全部在路由上实现了
+    2. 准备文件
+        apt-get install libpcap-dev
+        cd /root
+        mkdir finalspeed
+        cd finalspeed
+        wget https://github.com/wholeworm/finalspeed/releases/download/1.2/finalspeed_1.2_jdk7.zip
+        unzip finalspeed_1.2_jdk7.zip
+        rm finalspeed_1.2_jdk7.zip
+        cp finalspeed.jar client.jar
+    3. 配置Finalspeed
+        nano client_config.json
+        ####添加内容
+        {
+           #本地下载带宽。以字节为单位，比如100Mbps带宽100/8*1024*1024=13107200     
+           "download_speed": 13107200,
+           #tcp或udp，有些vps只支持udp，官方说udp不稳定，但我用了一段时间感觉很好
+           "protocal": "udp",
+           #Finalspeed服务端的IP
+           "server_address": "x.x.x.x",
+           "server_port": 150,
+           "socks5_port": 1083,
+           #本地上传带宽，格式同下载带宽，比如10Mbps带宽10/8*1024*1024=1310720
+           "upload_speed": 1310720
+        }
+        #注意带宽不要超出本地的实际带宽，否则会卡死
+        ####另外两个选项不要修改，保存退出
+        nano port_map.json
+        ####添加内容
+        {
+           "map_list": [
+               {
+                   "dst_port": 443, #Shadowsocks服务端的端口
+                   "listen_port": 5299, #Finalspeed在本地映射的端口，我用了5299
+                   "name": "ss"
+               },
+               {
+                   "dst_port": 22777, #这里dst_port可改可不改，用来加速ssh连接的
+                   "listen_port": 2277,
+                   "name": "ssh"
+               }
+           ]
+        }
+        ####保存退出
+    4. 配置运行文件
+        #直接用java - jar /root/finalspeed/client.jar会出问题，建议用以下方法运行
+        cd /root
+        nano fs.sh
+        ####输入
+        #!/bin/bash
+        cd /root/finalspeed
+        nohup java -jar client.jar >/dev/null 2>&1 &
+        cd /root
+        ####保存退出
+        chmod 755 fs.sh
+    5. 等配置并保存iptables后再运行Finalspeed，免得有重复记录
+
+五、配置无线中继
+    1. 安装配置hostapd
+        apt-get install hostapd
+        nano /etc/default/hostapd #设置conf文件路径
+        ####修改
+        DAEMON_CONF="/etc/hostapd/hostapd.conf"
+        ####保存退出
+        nano /etc/hostapd/hostapd.conf #创建conf文件
+        ####添加内容
+        # Basic configuration
+        interface=wlan0
+        ssid=Ian-Raspi #改成自己的ssid
+        channel=6
+        # WPA and WPA2 configuration
+        macaddr_acl=0
+        auth_algs=1
+        ignore_broadcast_ssid=0
+        wpa=2
+        wpa_passphrase=yourpassword #改成自己的wifi密码
+        wpa_key_mgmt=WPA-PSK
+        wpa_pairwise=TKIP
+        rsn_pairwise=CCMP
+        wmm_enabled=0
+        ####保存退出
+        service hostapd restart
+        update-rc.d hostapd defaults
+    2. 安装配置udhcpd
+        apt-get install udhcpd
+        nano /etc/udhcpd.conf
+        ####修改
+        start           192.168.18.20   #default: 192.168.0.20 #我是将192.168.18.x设置为wifi段
+        end             192.168.18.100  #default: 192.168.0.254
+        interface       wlan0           #default: eth0
+        opt     dns     192.168.18.1 #将DNS设置为Raspi本机，使用Pcap_DNSProxy
+        option  subnet  255.255.255.0
+        opt     router  192.168.18.1
+        #opt    wins    192.168.10.10
+        #option dns     129.219.13.81   #注释掉，不需要其他附加DNS
+        option  domain  local
+        option  lease   864000          # 10 days of seconds
+        #如果你设置为其他网段，在后面的iptables中要做相应修改
+        ####保存退出
+        nano /etc/default/udhcpd
+        #注释掉DHCPD_ENABLED="no"这一行
+        service udhcpd restart
+        update-rc.d udhcpd defaults
+    3. 修改wlan0的ip地址为192.168.18.1
+        ifconfig wlan0 192.168.18.1 netmask 255.255.255.0
+
+六、安装OpenVPN
+    1. 安装程序包生成key
+        apt-get install openvpn
+        mkdir /etc/openvpn/easy-rsa
+        cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/
+        cd /etc/openvpn/easy-rsa/
+        nano vars
+        ####修改
+        export EASY_RSA="/etc/openvpn/easy-rsa"
+        ####保存退出
+        source ./vars
+        ./clean-all
+        ./build-ca #信息按提示随便输一下
+        ./build-key-server SERVER_NAME #自定义下SERVER_NAME，我用的irasp2，供下文参考
+        # 同样是按提示随便输一下，challenge password直接回车，其他yes
+        ./build-key-pass CLIENT_NAME #自定义下CLIENT_NAME，我用的ianr2，供下文参考
+        #PEM pass phrase要输入两次，自己设置个密码，其他信息按提示随便输一下
+        #challenge password直接回车，其他yes
+        cd keys
+        openssl rsa -in ianr2.key -out ianr2.key.new
+        #输入刚刚设置的PEM密码
+        #因为主要是手机客户端用，所以这一步必须，否则解析密钥可能出现问题
+        cp ianr2.key ianr2.key.ori
+        rm ianr2.key
+        cp ianr2.key.new ianr2.key
+        cd ..
+        ./build-dh #耐心等待点时间
+        openvpn --genkey --secret keys/ta.key
+    2. 服务器端配置文件
+        nano /etc/openvpn/ianr2server.conf #可以换个文件名
+        ####添加内容
+        dev tun
+        proto udp #使用udp协议
+        port 1194 #端口号，记得在路由器上做好端口映射
+        ca /etc/openvpn/easy-rsa/keys/ca.crt
+        cert /etc/openvpn/easy-rsa/keys/irasp2.crt #修改为自己的OpenVPN服务器cert
+        key /etc/openvpn/easy-rsa/keys/irasp2.key #修改为自己的OpenVPN服务器key
+        dh /etc/openvpn/easy-rsa/keys/dh2048.pem
+        server 10.8.0.0 255.255.255.0 #如果你设置为其他网段，在后面的iptables中要做相应修改
+        push "dhcp-option DNS 10.8.0.1" #将DNS设置为Raspi本机，使用Pcap_DNSProxy
+        push "redirect-gateway def1"
+        client-to-client
+        duplicate-cn
+        keepalive 10 120
+        tls-auth /etc/openvpn/easy-rsa/keys/ta.key 0
+        cipher AES-256-CBC
+        comp-lzo
+        user nobody
+        group nogroup
+        persist-key
+        persist-tun
+        status /var/log/openvpn-status.log 20
+        log /var/log/openvpn.log
+        verb 3
+        ####保存退出
+    3. 客户端配置文件（用文本编辑器复制保存即可，我的文件名是ianr2.conf）
+        #将ca和key全部写到一个文件中，因为IOS版本的OpenVPN只能添加一个文件
+        ####添加内容
+        client
+        dev tun
+        proto udp
+        remote domain.com port #修改为自己的Raspi公网ip地址和端口
+        resolv-retry infinite
+        nobind
+        persist-key
+        persist-tun
+        mute-replay-warnings
+        remote-cert-tls server
+        key-direction 1
+        cipher AES-256-CBC
+        comp-lzo
+        verb 3
+        mute 20
+        <ca>
+        -----BEGIN CERTIFICATE-----
+        AAAAAAAAA #替换成ianr2.ca的内容
+        -----END CERTIFICATE-----
+        </ca>
+        <cert>
+        -----BEGIN CERTIFICATE-----
+        AAAAAAAAA #替换成ianr2.crt的内容
+        -----END CERTIFICATE-----
+        </cert>
+        <key>
+        -----BEGIN RSA PRIVATE KEY-----
+        AAAAAAAAA #替换成ianr2.key的内容
+        -----END RSA PRIVATE KEY-----
+        </key>
+        <tls-auth>
+        -----BEGIN OpenVPN Static key V1-----
+        AAAAAAAAA #替换成ta.key的内容
+        -----END OpenVPN Static key V1-----
+        </tls-auth>
+        ####保存退出
+
+七、将Raspi配置成网关转发流量
+    1. 配置sysctl
+        nano /etc/sysctl.conf
+        ####修改
+        net.ipv4.ip_forward=1
+        ####保存退出
+        sysctl -p /etc/sysctl.conf
+    2. 配置iptables
+        #国内流量直接转发至路由，国外流量包括科学上网转发至ss-redir的1080端口
+        #从apnic获得国内ip地址，即chnroute
+        cd /root
+        curl http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest | grep 'apnic|CN|ipv4' | awk -F\| '{ printf("iptables -t nat -A SHADOWSOCKS -d %s/%d -j RETURN\n", $4, 32-log($5)/log(2)) }' > cn_rules.sh
+        chmod 755 cn_rules.sh
+        #依次输入以下iptables命令
+        iptables -A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+        iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT
+        iptables -t nat -N SHADOWSOCKS
+        #其他设备走PREROUTING链
+        iptables -t nat -A PREROUTING -p tcp -j SHADOWSOCKS
+        #Raspi走OUTPUT链
+        iptables -t nat -A OUTPUT -p tcp -j SHADOWSOCKS
+        #10.8.0.0是OpenVPN，192.168.18.0是wifi
+        iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s 192.168.18.0/24 -o eth0 -j MASQUERADE
+        #过滤局域网和vps的ip
+        iptables -t nat -A SHADOWSOCKS -d 0.0.0.0/8 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 10.0.0.0/8 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 127.0.0.0/8 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 169.254.0.0/16 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 172.16.0.0/12 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 192.168.0.0/16 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 224.0.0.0/4 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d 240.0.0.0/4 -j RETURN
+        iptables -t nat -A SHADOWSOCKS -d x.x.x.x/32 -j RETURN #修改为Shadowsocks服务端ip 
+        #过滤chnroute
+        sh /root/cn_rules.sh #耐心等待点时间
+        #国外ip转发到ss-redir的1080端口
+        iptables -t nat -A SHADOWSOCKS -p tcp -j REDIRECT --to-ports 1080
+        保存iptables配置并在开机时自动添加
+        apt-get install iptables-persistent
+        iptables-save > /etc/iptables/rules.v4
+
+八、配置开机启动
+    1. 我在路由器上修改了dhcp配置，将所有客户端的默认网关和DNS服务器都指向了Raspi的地址。OpenWRT可以直接修改。Tomato系统需要在dnsmasq中自定义两句：
+        ####
+        dhcp-option=tag:br0,3,192.168.x.x #3代表网关，设置为Raspi ip
+        dhcp-option=tag:br0,6,192.168.x.x #6代表DNS，设置为Raspi ip
+        ####
+        当然，这样会导致Raspi连接路由时也默认将网关指向自己，无法上网，因此需要单独配置。实现的方法有很多种，我是直接停用了Raspi的dhcpcd，然后开机指定ip和默认网关
+        nano /root/netup.sh
+        ####添加内容
+        #!/bin/bash
+        ifconfig eth0 192.168.x.x netmask 255.255.255.0 #修改为Raspi的固定IP
+        ifconfig wlan0 192.168.18.1 netmask 255.255.255.0 #修改wifi网卡ip
+        route add default gw 192.168.x.1 #给Raspi指定路由器ip为默认网关 ，注意修改
+        systemctl restart udhcpd
+        ####保存退出
+        chmod 755 netup.sh
+        或者
+        nano etc/dhcpcd.conf
+        ####添加内容
+        # Custom static IP address for eth0.
+        interface eth0
+        static ip_address=192.168.x.x/24 #设定静态ip
+        static routers=192.168.x.1 #设定路由器为网关
+        static domain_name_servers=192.168.x.x #设定自身为DNS
+        ####保存退出
+    2. 开机文件
+        nano /etc/rc.local
+        ####在exit 0上面添加内容
+        sleep 15
+        #Raspi的启动和rc.local的执行非常快，有时网卡还没有获得ip，这会导致Finalspeed和Shadowsocks出错，所以等待15秒
+        sh /root/netup.sh
+        sh /root/fs.sh
+        nohup /usr/local/bin/ss-redir -s 127.0.0.1 -p 5299 -b 0.0.0.0 -l 1080 -k yourpassword -m aes-256-cfb -u >/dev/null 2>&1 &
+        #ip地址就是本地127.0.0.1，端口是经Finalspeed加速后的5299
+        #ss-redir的本地端口我用了1080
+        #另外将yourpassword改成Shadowsocks服务端密码
+        ####保存退出
+
+九、其他
+    1. reboot后Raspi应该就可以使用了，如果不修改路由器的dhcp，可以手动修改客户端网卡的默认网关和DNS，不过对手机通过wifi连接到路由器时并不方便
+    2. 其实也可以把Raspi配置在路由前面自己拨号，但完全暴露在公网要配置些防火墙，有精力的可以搞
+    3. 正常运行下来，温度在50到55度左右（室温26度）。可以用python查看温度：
+        nano /root/temp.py
+        ####添加内容
+        # -*- coding: utf-8 -*-
+        # ....
+        file = open("/sys/class/thermal/thermal_zone0/temp")
+        # ............
+        temp = float(file.read()) / 1000
+        # ....
+        file.close()
+        # ......
+        print "temp : %.1f" %temp
+        ####保存退出
+        chmod 755 temp.py
+        python temp.py
+    4. 已经从零开始配置过三台Raspi，全部是实测脚本，应该不会有问题
+    5. 最后简单提一下在vps上运行Shadowsocks和安装Finalspeed的情况
+        #安装Shadowsocks
+        #和Raspi上的过程没有区别，运行时使用ss-server，ip一定要用0.0.0.0，将yourpassword改成自己的密码
+        nohup /usr/local/bin/ss-server -s 0.0.0.0 -p 443 -k yourpassword -m aes-256-cfb -u > /nohup.out 2>&1 &
+        #安装Finalspeed
+        rm -f install_fs.sh
+        wget  https://github.com/wholeworm/finalspeed/files/291133/install_fs.txt
+        cp install_fs.txt install_fs.sh
+        rm install_fs.txt
+        chmod +x install_fs.sh
+        ./install_fs.sh 2>&1 | tee install.log
+        sh /fs/restart.sh
+        tail -f /fs/server.log
+        #将sh /fs/start.sh添加到/etc/rc.local中实现开机启动
+        #/fs/目录里面还有些其他脚本，看文件名就知道含义
+        #另外我在crontab中设置了Finalspeed每天定时重启和Shadowsocks的日志清空
+        crontab -e
+        0 19 * * * sh /fs/restart.sh
+        0,30 * * * * cp /dev/null /nohup.out
+        #长期使用过两家VPS，其中virmach比较稳定，vultr也可以但好像Finalspeed时有抽风（更新1.2版客户端后很稳定）
+        #有条件的可以考虑在另外一台Raspi上安装Shadowsocks和Finalspeed的服务端，然后放到国外去:D
+
+-THE END-
