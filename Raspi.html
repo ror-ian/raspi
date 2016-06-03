@@ -1,0 +1,340 @@
+<html>
+<head>
+  <title>Raspi</title>
+  <basefont face="Tahoma" size="2" />
+  <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+  <meta name="exporter-version" content="Evernote Windows/301769 (en-US); Windows/6.1.7601 Service Pack 1 (Win64);"/>
+  <style>
+    body, td {
+      font-family: Tahoma;
+      font-size: 10pt;
+    }
+  </style>
+</head>
+<body>
+<a name="629"/>
+
+<div>
+<span><div>Raspi型号：3B</div><div><br/></div><div>主要功能：Pcap_DNSProxy + Shadowsocks + Finalspeed + Wifi + OpenVPN + Gateway</div><div>- 用Pcap_DNSProxy做本地DNS</div><div>- Shadowsocks建立安全连接科学上网</div><div>- Finalspeed在Raspi和VPS之间做端口加速，理论上可以达到最大带宽，看Youtube 4k没问题</div><div>- OpenVPN方便自己在外面临时科学上网，重点在于墙内的OpenVPN连接是不受干扰的，目前IOS和Android都有客户端</div><div>- 家用或办公室将Raspi作为网关上网</div><div>- 出差时用Raspi作为wifi上网，Raspi的无线网卡较弱，也就适合酒店一个房间使用</div><div><br/></div><div>一、准备Raspi</div><ol><li>粘贴散热片，组装盒子</li><li>下载Raspbian完整版<br/><a href="https://www.raspberrypi.org/downloads/raspbian/">https://www.raspberrypi.org/downloads/raspbian/</a></li><li>下载win32diskimager<br/><a href="https://sourceforge.net/projects/win32diskimager/files/latest/download">https://sourceforge.net/projects/win32diskimager/files/latest/download</a></li><li>往TF卡中写入镜像，插入Raspi</li><li>Raspi连接网线，通电</li></ol><div><br/></div><div>二、Raspi基本设置</div><ol><li>在路由中查到Raspi的ip地址，默认主机名是raspberrypi，或者用superscan扫描出来</li><li>使用putty以ssh方式连接Raspi，默认端口22，默认用户pi，默认密码raspberry</li><li>sudo raspi-config #常规配置，按以下序号依次选一遍<br/>
+a) 1 Expand Filesystem<br/>
+b) 2 Change User Password<br/>
+c) 3 Boot Option --&gt; B1 Console<br/>
+d) 4 Wait for Network at Boot --&gt; No<br/>
+e) 5 Internationalisation Options  --&gt; 设置一下语言(en_US)和时区(Shanghai)<br/>
+f) 9 Advanced Options --&gt; A2 Hostname<br/>
+g) 9 Advanced Options --&gt; A3 Memory Split (显存)<br/>
+设置完选Finish重启</li><li>开启root登录(反正在内网路由后面，图方便)<br/><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">sudo passwd root</span><br/>
+sudo passwd --unlock root<br/>
+sudo <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nano /etc/ssh/sshd_config<br/></span>####修改，顺便把默认端口22换一下<br/>
+Port xxxxx<br/>
+PermitRootLogin yes<br/>
+####保存退出<br/>
+sudo <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">service ssh restart<br/>
+退出pi用户并换root登录</span></li><li><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">更新并安装一些必要的包，最好用默认源，阿里和中科大的源我试过，快是快但有些包被和谐了<br/>
+apt-get update</span><br/><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">apt-get upgrade</span><br/><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">apt-get install build-essential autoconf libtool libssl-dev git</span><br/><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">apt-get install libnet1 libpcap0.8 libnet1-dev libpcap0.8-dev</span></li></ol><div><br/></div><div>三、安装Pcap_DNSProxy</div><ol><li>下面是编译安装步骤，详细解释可参考<br/><a href="https://github.com/chengr28/Pcap_DNSProxy/blob/master/Documents/ReadMe_Linux(zh_Hans).txt"></a><a href="https://github.com/chengr28/Pcap_DNSProxy/blob/master/Documents/ReadMe_Linux(zh_Hans).txt">https://github.com/chengr28/Pcap_DNSProxy/blob/master/Documents/ReadMe_Linux(zh_Hans).txt</a></li><li>安装编译环境<br/>
+apt-get install Bison Flex CMake<br/>
+# Install LibPcap<br/>
+cd /root<br/>
+wget http://www.tcpdump.org/release/libpcap-1.7.4.tar.gz<br/>
+tar xvf libpcap-1.7.4.tar.gz<br/>
+rm libpcap-1.7.4.tar.gz<br/>
+cd libpcap-1.7.4<br/>
+./configure<br/>
+make &amp;&amp; make install<br/>
+# Install Libsodium<br/>
+cd /root<br/>
+git clone https://github.com/jedisct1/libsodium<br/>
+cd libsodium<br/>
+./autogen.sh<br/>
+./configure<br/>
+make &amp;&amp; make install</li><li>编译安装Pcap_DNSProxy<br/>
+cd /root<br/>
+git clone https://github.com/chengr28/Pcap_DNSProxy.git<br/>
+cd Pcap_DNSProxy/Source/Scripts<br/>
+chmod 755 Linux_Build.sh<br/>
+./Linux_Build.sh<br/>
+#Raspi默认不带DNS服务相关的包，会导致Pcap_DNSProxy无法启动<br/>
+#最简单的办法是装一次dnsmasq然后立即删掉<br/>
+apt-get install dnsmasq<br/>
+apt-get remove dnsmasq</li><li>配置系统服务<br/>
+cd /root/Pcap_DNSProxy/Source/Release<br/>
+nano Pcap_DNSProxy.service<br/>
+####修改<br/>
+WorkingDirectory=/root/Pcap_DNSProxy/Source/Release/<br/>
+ExecStart=/root/Pcap_DNSProxy/Source/Release/Pcap_DNSProxy<br/>
+####保存退出<br/>
+cd /root/Pcap_DNSProxy/Source/Scripts<br/>
+./Linux_Install.Systemd.sh<br/>
+#可以用systemctl status Pcap_DNSProxy检查运行情况，看到active (running)即可<br/>
+#输入netstat -tulpn也能看到Pcap_DNSProxy的53端口已经开放了</li></ol><div><br/></div><div>三、安装Shadowsocks</div><ol><li>需要vps上运行服务端ss-server</li><li>编译安装<br/>
+cd /root<br/>
+git clone https://github.com/madeye/shadowsocks-libev.git<br/>
+cd shadowsocks-libev<br/>
+./configure<br/>
+make &amp;&amp; make install</li><li>主要用到ss-redir，安装后暂不运行，后面统一配置</li></ol><div><br/></div><div>四、安装Finalspeed</div><ol><li>Finalspeed是加速的关键，需要vps上运行服务端。目前只有Java版本，这也是为什么要使用支持Java的Raspi作为网关，以后如果有了OpenWRT版，就可以全部在路由上实现了</li><li>准备文件<br/>
+apt-get install libpcap-dev<br/>
+cd /root<br/>
+mkdir finalspeed<br/>
+cd finalspeed<br/>
+wget https://github.com/wholeworm/finalspeed/releases/download/1.2/finalspeed_1.2_jdk7.zip<br/>
+unzip finalspeed_1.2_jdk7.zip<br/>
+rm finalspeed_1.2_jdk7.zip<br/>
+cp finalspeed.jar client.jar</li><li>配置Finalspeed<br/>
+nano client_config.json<br/>
+####添加内容<br/>
+{<br/>
+   #本地下载带宽。以字节为单位，比如100Mbps带宽100/8*1024*1024=13107200     <br/>
+   &quot;download_speed&quot;: 13107200,<br/>
+   #tcp或udp，有些vps只支持udp，官方说udp不稳定，但我用了一段时间感觉很好<br/>
+   &quot;protocal&quot;: &quot;udp&quot;,<br/>
+   #Finalspeed服务端的IP<br/>
+   &quot;server_address&quot;: &quot;x.x.x.x&quot;,<br/>
+   &quot;server_port&quot;: 150,<br/>
+   &quot;socks5_port&quot;: 1083,<br/>
+   #本地上传带宽，格式同下载带宽，比如10Mbps带宽10/8*1024*1024=1310720<br/>
+   &quot;upload_speed&quot;: 1310720<br/>
+}<br/>
+#注意带宽不要超出本地的实际带宽，否则会卡死<br/>
+####另外两个选项不要修改，保存退出<br/>
+nano port_map.json<br/>
+####添加内容<br/>
+{<br/>
+   &quot;map_list&quot;: [<br/>
+       {<br/>
+           &quot;dst_port&quot;: 443, #Shadowsocks服务端的端口<br/>
+           &quot;listen_port&quot;: 5299, #Finalspeed在本地映射的端口，我用了5299<br/>
+           &quot;name&quot;: &quot;ss&quot;<br/>
+       },<br/>
+       {<br/>
+           &quot;dst_port&quot;: 22777, #<span style="color: rgb(0, 0, 0); font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; orphans: 2; text-align: -webkit-auto; text-indent: 0px; text-transform: none; white-space: normal; widows: 2; word-spacing: 0px; -webkit-text-size-adjust: auto; -webkit-text-stroke-width: 0px; background-color: rgb(255, 255, 255); display: inline !important; float: none;">这里dst_port可改可不改，用来加速ssh连接的</span><br/>
+           &quot;listen_port&quot;: 2277,<br/>
+           &quot;name&quot;: &quot;ssh&quot;<br/>
+       }<br/>
+   ]<br/>
+}<br/>
+####保存退出</li><li>配置运行文件<br/>
+#直接用java - jar /root/finalspeed/client.jar会出问题，建议用以下方法运行<br/>
+cd /root<br/>
+nano fs.sh<br/>
+####输入<br/>
+#!/bin/bash<br/>
+cd /root/finalspeed<br/>
+nohup java -jar client.jar &gt;/dev/null 2&gt;&amp;1 &amp;<br/>
+cd /root<br/>
+####保存退出<br/>
+chmod 755 fs.sh</li><li>等配置并保存iptables后再运行Finalspeed，免得有重复记录</li></ol><div><br/></div><div>五、配置无线中继</div><ol><li>安装配置hostapd<br/>
+apt-get install hostapd<br/>
+nano /etc/default/hostapd #设置conf文件路径<br/>
+####修改<br/>
+DAEMON_CONF=&quot;/etc/hostapd/hostapd.conf&quot;<br/>
+####保存退出<br/>
+nano /etc/hostapd/hostapd.conf #创建conf文件<br/>
+####添加内容<br/>
+# Basic configuration<br/>
+interface=wlan0<br/>
+ssid=Ian-Raspi #改成自己的ssid<br/>
+channel=6<br/>
+# WPA and WPA2 configuration<br/>
+macaddr_acl=0<br/>
+auth_algs=1<br/>
+ignore_broadcast_ssid=0<br/>
+wpa=2<br/>
+wpa_passphrase=yourpassword #改成自己的wifi密码<br/>
+wpa_key_mgmt=WPA-PSK<br/>
+wpa_pairwise=TKIP<br/>
+rsn_pairwise=CCMP<br/>
+wmm_enabled=0<br/>
+####保存退出<br/>
+service hostapd restart<br/>
+update-rc.d hostapd defaults</li><li>安装配置udhcpd<br/>
+apt-get install udhcpd<br/>
+nano /etc/udhcpd.conf<br/>
+####修改<br/>
+start           192.168.18.20   #default: 192.168.0.20 #我是将192.168.18.x设置为wifi段<br/>
+end             192.168.18.100  #default: 192.168.0.254<br/>
+interface       wlan0           #default: eth0<br/>
+opt     dns     192.168.18.1 #将DNS设置为Raspi本机，使用Pcap_DNSProxy<br/>
+option  subnet  255.255.255.0<br/>
+opt     router  192.168.18.1<br/>
+#opt    wins    192.168.10.10<br/>
+#option dns     129.219.13.81   #注释掉，不需要其他附加DNS<br/>
+option  domain  local<br/>
+option  lease   864000          # 10 days of seconds<br/>
+#如果你设置为其他网段，在后面的iptables中要做相应修改<br/>
+####保存退出<br/>
+nano /etc/default/udhcpd<br/>
+#注释掉DHCPD_ENABLED=&quot;no&quot;这一行<br/>
+service udhcpd restart<br/>
+update-rc.d udhcpd defaults</li><li>修改wlan0的ip地址为192.168.18.1<br/>
+ifconfig wlan0 192.168.18.1 netmask 255.255.255.0</li></ol><div><br/></div><div>六、安装OpenVPN</div><ol><li>安装程序包生成key<br/>
+apt-get install openvpn<br/>
+mkdir /etc/openvpn/easy-rsa<br/>
+cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/<br/>
+cd /etc/openvpn/easy-rsa/<br/>
+nano vars<br/>
+####修改<br/>
+export EASY_RSA=&quot;/etc/openvpn/easy-rsa&quot;<br/>
+####保存退出<br/>
+source ./vars<br/>
+./clean-all<br/>
+./build-ca #信息按提示随便输一下<br/>
+./build-key-server SERVER_NAME #自定义下SERVER_NAME，我用的irasp2，供下文参考<br/>
+# 同样是按提示随便输一下，challenge password直接回车，其他yes<br/>
+./build-key-pass CLIENT_NAME #自定义下CLIENT_NAME，我用的ianr2，供下文参考<br/>
+#PEM pass phrase要输入两次，自己设置个密码，其他信息按提示随便输一下<br/>
+#challenge password直接回车，其他yes<br/>
+cd keys<br/>
+openssl rsa -in ianr2.key -out ianr2.key.new<br/>
+#输入刚刚设置的PEM密码<br/>
+#因为主要是手机客户端用，所以这一步必须，否则解析密钥可能出现问题<br/>
+cp ianr2.key ianr2.key.ori<br/>
+rm ianr2.key<br/>
+cp ianr2.key.new ianr2.key<br/>
+cd ..<br/>
+./build-dh #耐心等待点时间<br/>
+openvpn --genkey --secret keys/ta.key</li><li>服务器端配置文件<br/>
+nano /etc/openvpn/ianr2server.conf #可以换个文件名<br/>
+####添加内容<br/>
+dev tun<br/>
+proto udp #使用udp协议<br/>
+port 1194 #端口号，记得在路由器上做好端口映射<br/>
+ca /etc/openvpn/easy-rsa/keys/ca.crt<br/>
+cert /etc/openvpn/easy-rsa/keys/irasp2.crt #修改为自己的OpenVPN服务器cert<br/>
+key /etc/openvpn/easy-rsa/keys/irasp2.key #修改为自己的OpenVPN服务器key<br/>
+dh /etc/openvpn/easy-rsa/keys/dh2048.pem<br/>
+server 10.8.0.0 255.255.255.0 #如果你设置为其他网段，在后面的iptables中要做相应修改<br/>
+push &quot;dhcp-option DNS 10.8.0.1&quot; #将DNS设置为Raspi本机，使用Pcap_DNSProxy<br/>
+push &quot;redirect-gateway def1&quot;<br/>
+client-to-client<br/>
+duplicate-cn<br/>
+keepalive 10 120<br/>
+tls-auth /etc/openvpn/easy-rsa/keys/ta.key 0<br/>
+cipher AES-256-CBC<br/>
+comp-lzo<br/>
+user nobody<br/>
+group nogroup<br/>
+persist-key<br/>
+persist-tun<br/>
+status /var/log/openvpn-status.log 20<br/>
+log /var/log/openvpn.log<br/>
+verb 3<br/>
+####保存退出</li><li>客户端配置文件（用文本编辑器复制保存即可，我的文件名是ianr2.conf）<br/>
+#将ca和key全部写到一个文件中，因为IOS版本的OpenVPN只能添加一个文件<br/>
+####添加内容<br/>
+client<br/>
+dev tun<br/>
+proto udp<br/>
+remote domain.com port #修改为自己的Raspi公网ip地址和端口<br/>
+resolv-retry infinite<br/>
+nobind<br/>
+persist-key<br/>
+persist-tun<br/>
+mute-replay-warnings<br/>
+remote-cert-tls server<br/>
+key-direction 1<br/>
+cipher AES-256-CBC<br/>
+comp-lzo<br/>
+verb 3<br/>
+mute 20<br/>
+&lt;ca&gt;<br/>
+-----BEGIN CERTIFICATE-----<br/>
+AAAAAAAAA #替换成ianr2.ca的内容<br/>
+-----END CERTIFICATE-----<br/>
+&lt;/ca&gt;<br/>
+&lt;cert&gt;<br/>
+-----BEGIN CERTIFICATE-----<br/>
+AAAAAAAAA #替换成ianr2.crt的内容<br/>
+-----END CERTIFICATE-----<br/>
+&lt;/cert&gt;<br/>
+&lt;key&gt;<br/>
+-----BEGIN RSA PRIVATE KEY-----<br/>
+AAAAAAAAA #替换成ianr2.key的内容<br/>
+-----END RSA PRIVATE KEY-----<br/>
+&lt;/key&gt;<br/>
+&lt;tls-auth&gt;<br/>
+-----BEGIN OpenVPN Static key V1-----<br/>
+AAAAAAAAA #替换成ta.key的内容<br/>
+-----END OpenVPN Static key V1-----<br/>
+&lt;/tls-auth&gt;<br/>
+####保存退出</li></ol><div><br/></div><div><br/></div><div>七、将Raspi配置成网关转发流量</div><ol><li>配置sysctl<br/>
+nano /etc/sysctl.conf<br/>
+####修改<br/>
+net.ipv4.ip_forward=1<br/>
+####保存退出<br/>
+sysctl -p /etc/sysctl.conf</li><li>配置iptables<br/>
+#国内流量直接转发至路由，国外流量包括科学上网转发至ss-redir的1080端口<br/>
+#从apnic获得国内ip地址，即chnroute<br/>
+cd /root<br/><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">curl http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest | grep 'apnic|CN|ipv4' | awk -F\| '{ printf(&quot;iptables -t nat -A </span>SHADOWSOCKS <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-d %s/%d -j RETURN\n&quot;, $4, 32-log($5)/log(2)) }' &gt; cn_rules.sh<br/>
+chmod 755 cn_rules.sh<br/>
+#依次输入以下iptables命令<br/></span><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -A FORWARD -i eth0 -o wlan0 -m state --state RELATED,ESTABLISHED -j ACCEPT<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -A FORWARD -i wlan0 -o eth0 -j ACCEPT<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t nat -N SHADOWSOCKS<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">#其他设备走PREROUTING链<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t nat -A PREROUTING -p tcp -j SHADOWSOCKS<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">#Raspi走OUTPUT链<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t nat -A OUTPUT -p tcp -j SHADOWSOCKS<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">#10.8.0.0是OpenVPN，192.168.18.0是wifi<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t nat -A POSTROUTING -s 192.168.18.0/24 -o eth0 -j MASQUERADE<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">#过滤局域网和vps的ip<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 0.0.0.0/8 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 10.0.0.0/8 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 127.0.0.0/8 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 169.254.0.0/16 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 172.16.0.0/12 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 192.168.0.0/16 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 224.0.0.0/4 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d 240.0.0.0/4 -j RETURN<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">nat</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">-A SHADOWSOCKS -d x.x.x.x/32 -j RETURN #修改为Shadowsocks服务端ip</span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;"><br/></span><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">#过滤chnroute<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">sh /root/cn_rules.sh #耐心等待点时间<br/></span><span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">#国外ip转发到ss-redir的1080端口<br/></span> <span style="word-wrap: break-word; -webkit-nbsp-mode: space; -webkit-line-break: after-white-space;">iptables -t nat -A SHADOWSOCKS -p tcp -j REDIRECT --to-ports 1080</span></li><li>保存iptables配置并在开机时自动添加<br/>
+apt-get install iptables-persistent<br/>
+iptables-save &gt; /etc/iptables/rules.v4</li></ol><div><br/></div><div>八、配置开机启动</div><ol><li>我在路由器上修改了dhcp配置，将所有客户端的默认网关和DNS服务器都指向了Raspi的地址。OpenWRT可以直接修改。Tomato系统需要在dnsmasq中自定义两句：<br/>
+####<br/>
+dhcp-option=tag:br0,3,192.168.x.x #3代表网关，设置为Raspi ip<br/>
+dhcp-option=tag:br0,6,192.168.x.x #6代表DNS，设置为Raspi ip<br/>
+####<br/>
+当然，这样会导致Raspi连接路由时也默认将网关指向自己，无法上网，因此需要单独配置。实现的方法有很多种，我是直接停用了Raspi的dhcpcd，然后开机指定ip和默认网关<br/>
+nano /root/netup.sh<br/>
+####添加内容<br/>
+#!/bin/bash<br/>
+ifconfig eth0 192.168.x.x netmask 255.255.255.0 #修改为Raspi的固定IP<br/>
+ifconfig wlan0 192.168.18.1 netmask 255.255.255.0 #修改wifi网卡ip<br/>
+route add default gw 192.168.x.1 #给Raspi指定路由器ip为默认网关 ，注意修改<br/>
+systemctl restart udhcpd<br/>
+####保存退出<br/>
+chmod 755 netup.sh<br/>
+或者<br/>
+nano etc/dhcpcd.conf<br/>
+####添加内容<br/>
+# Custom static IP address for eth0.<br/>
+interface eth0<br/>
+static ip_address=192.168.x.x/24 #设定静态ip<br/>
+static routers=192.168.x.1 #设定路由器为网关<br/>
+static domain_name_servers=192.168.x.x #设定自身为DNS<br/>
+####保存退出</li><li>开机文件<br/>
+nano /etc/rc.local<br/>
+####在exit 0上面添加内容<br/>
+sleep 15<br/>
+#Raspi的启动和rc.local的执行非常快，有时网卡还没有获得ip，这会导致Finalspeed和Shadowsocks出错，所以等待15秒<br/>
+sh /root/netup.sh<br/>
+sh /root/fs.sh<br/>
+nohup /usr/local/bin/ss-redir -s 127.0.0.1 -p 5299 -b 0.0.0.0 -l 1080 -k yourpassword -m aes-256-cfb -u &gt;/dev/null 2&gt;&amp;1 &amp;<br/>
+#ip地址就是本地127.0.0.1，端口是经Finalspeed加速后的5299<br/>
+#ss-redir的本地端口我用了1080<br/>
+#另外将yourpassword改成Shadowsocks服务端密码<br/>
+####保存退出</li></ol><div><br/></div><div>九、其他</div><ol><li>reboot后Raspi应该就可以使用了，如果不修改路由器的dhcp，可以手动修改客户端网卡的默认网关和DNS，不过对手机通过wifi连接到路由器时并不方便</li><li>其实也可以把Raspi配置在路由前面自己拨号，但完全暴露在公网要配置些防火墙，有精力的可以搞</li><li>正常运行下来，温度在50到55度左右（室温26度）。可以用python查看温度：<br/>
+nano /root/temp.py<br/>
+####添加内容<br/>
+# -*- coding: utf-8 -*-<br/>
+# ....<br/>
+file = open(&quot;/sys/class/thermal/thermal_zone0/temp&quot;)<br/>
+# ............<br/>
+temp = float(file.read()) / 1000<br/>
+# ....<br/>
+file.close()<br/>
+# ......<br/>
+print &quot;temp : %.1f&quot; %temp<br/>
+####保存退出<br/>
+chmod 755 temp.py<br/>
+python temp.py</li><li>已经从零开始配置过三台Raspi，全部是实测脚本，应该不会有问题</li><li>最后简单提一下在vps上运行Shadowsocks和安装Finalspeed的情况<br/>
+#安装Shadowsocks<br/>
+#和Raspi上的过程没有区别，运行时使用ss-server，ip一定要用0.0.0.0，将yourpassword改成自己的密码<br/>
+nohup /usr/local/bin/ss-server -s 0.0.0.0 -p 443 -k yourpassword -m aes-256-cfb -u &gt; /nohup.out 2&gt;&amp;1 &amp;<br/>
+#安装Finalspeed<br/>
+rm -f install_fs.sh<br/>
+wget  https://github.com/wholeworm/finalspeed/files/291133/install_fs.txt<br/>
+cp install_fs.txt install_fs.sh<br/>
+rm install_fs.txt<br/>
+chmod +x install_fs.sh<br/>
+./install_fs.sh 2&gt;&amp;1 | tee install.log<br/>
+sh /fs/restart.sh<br/>
+tail -f /fs/server.log<br/>
+#将sh /fs/start.sh添加到/etc/rc.local中实现开机启动<br/>
+#/fs/目录里面还有些其他脚本，看文件名就知道含义<br/>
+#另外我在crontab中设置了Finalspeed每天定时重启和Shadowsocks的日志清空<br/>
+crontab -e<br/>
+0 19 * * * sh /fs/restart.sh<br/>
+0,30 * * * * cp /dev/null /nohup.out<br/>
+#长期使用过两家VPS，其中virmach比较稳定，vultr也可以但好像Finalspeed时有抽风（更新1.2版客户端后很稳定）<br/>
+#有条件的可以考虑在另外一台Raspi上安装Shadowsocks和Finalspeed的服务端，然后放到国外去:D</li></ol><div><br/></div><div>-THE END-</div><div><br/></div></span>
+</div></body></html> 
