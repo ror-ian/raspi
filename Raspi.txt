@@ -358,7 +358,7 @@ Raspi型号：3B
         ####保存退出
         chmod 755 netup.sh
         或者
-        nano etc/dhcpcd.conf
+        nano /etc/dhcpcd.conf
         ####添加内容
         # Custom static IP address for eth0.
         interface eth0
